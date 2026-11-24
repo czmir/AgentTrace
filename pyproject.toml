@@ -20,7 +20,7 @@ classifiers = [
   "Topic :: Software Development :: Debuggers",
 ]
 dependencies = [
-  "pydantic>=2.6,<3",
+  "pydantic>=2.14.4,<3",
   "opentelemetry-api>=1.24,<2",
   "opentelemetry-sdk>=1.24,<2",
   "jsonschema>=4.21,<5",
