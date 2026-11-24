@@ -1,0 +1,39 @@
+{
+  "name": "agenttrace-smoke",
+  "version": "1",
+  "model": "mock-gpt-4o-mini",
+  "prompt_version": "v1",
+  "cases": [
+    {
+      "id": "normal_call",
+      "input": { "scenario": "normal_call" },
+      "expected": { "status": "ok" },
+      "assertions": [{ "type": "path_eq", "path": "status", "expected": "ok" }],
+      "tags": ["smoke"]
+    },
+    {
+      "id": "tool_failure",
+      "input": { "scenario": "tool_failure" },
+      "expected": { "status": "error", "tool_error": true },
+      "assertions": [
+        { "type": "path_eq", "path": "status", "expected": "error" },
+        { "type": "output_contains", "expected": "error" }
+      ],
+      "tags": ["failure"]
+    },
+    {
+      "id": "context_overflow",
+      "input": { "scenario": "context_overflow" },
+      "expected": { "status": "ok" },
+      "assertions": [{ "type": "path_eq", "path": "status", "expected": "ok" }],
+      "tags": ["context"]
+    },
+    {
+      "id": "human_confirm",
+      "input": { "scenario": "human_confirm" },
+      "expected": { "status": "ok" },
+      "assertions": [{ "type": "path_eq", "path": "status", "expected": "ok" }],
+      "tags": ["human"]
+    }
+  ]
+}

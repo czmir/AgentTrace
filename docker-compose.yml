@@ -1,0 +1,22 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.api
+    ports:
+      - "8765:8765"
+    environment:
+      AGENTTRACE_DB: /data/traces.db
+    volumes:
+      - agenttrace_data:/data
+  ui:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.ui
+    ports:
+      - "4321:4321"
+    depends_on:
+      - api
+
+volumes:
+  agenttrace_data:
