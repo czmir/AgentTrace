@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import functools
-from typing import Any, Callable, TypeVar
+from collections.abc import Callable
+from typing import Any, TypeVar
 
 from agenttrace.core import SpanKind
 from agenttrace.session import get_current_session

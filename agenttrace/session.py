@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import contextvars
+from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Any, Iterator
+from typing import Any, Self
 
-from agenttrace.core import Span, SpanKind, Trace, TraceStatus, TokenUsage
+from agenttrace.core import Span, SpanKind, TokenUsage, Trace, TraceStatus
 from agenttrace.recorder import TraceRecorder
 
 _current_session: contextvars.ContextVar[TraceSession | None] = contextvars.ContextVar(
@@ -31,7 +32,7 @@ class TraceSession:
         self._span_stack: list[str] = []
         self._token = None
 
-    def __enter__(self) -> TraceSession:
+    def __enter__(self) -> Self:
         self._token = _current_session.set(self)
         if self.recorder:
             self.recorder.save_trace(self.trace)

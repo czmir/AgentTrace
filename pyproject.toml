@@ -50,3 +50,10 @@ pythonpath = ["."]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+
+[tool.ruff.lint]
+ignore = [
+  "BLE001",    # eval/otel/replay catch Exception to record failures
+  "S110",      # subscriber callbacks must not abort emit
+  "ASYNC221",  # e2e seeds traces via a blocking demo_agent subprocess
+]

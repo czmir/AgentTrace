@@ -3,8 +3,9 @@ from __future__ import annotations
 import json
 import time
 import uuid
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -85,9 +86,8 @@ def run_assertions(output: Any, assertions: list[EvalAssertion], expected: dict[
         elif a.type == "no_error":
             if isinstance(output, dict) and output.get("error"):
                 failures.append(f"unexpected error: {output['error']}")
-        elif a.type == "trace_status":
-            if isinstance(output, dict) and output.get("status") != a.expected:
-                failures.append(f"trace status {output.get('status')} != {a.expected}")
+        elif a.type == "trace_status" and isinstance(output, dict) and output.get("status") != a.expected:
+            failures.append(f"trace status {output.get('status')} != {a.expected}")
     return failures
 
 
@@ -105,9 +105,12 @@ def run_eval_dataset(
         try:
             output, trace = runner(case)
             failures = run_assertions(output, case.assertions, case.expected)
-            if trace is not None:
-                if case.expected.get("status") and trace.status.value != case.expected["status"]:
-                    failures.append(f"trace status {trace.status.value} != {case.expected['status']}")
+            if (
+                trace is not None
+                and case.expected.get("status")
+                and trace.status.value != case.expected["status"]
+            ):
+                failures.append(f"trace status {trace.status.value} != {case.expected['status']}")
             passed = len(failures) == 0
             results.append(
                 EvalCaseResult(

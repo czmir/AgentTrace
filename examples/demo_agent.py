@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import time
 from pathlib import Path
-from typing import Any, Tuple
+from typing import Any
 
 from agenttrace.adapters.langgraph import wrap_langgraph_node
 from agenttrace.core import SpanKind, TokenUsage, Trace, TraceStatus
@@ -128,7 +128,7 @@ def run_all_scenarios(recorder: TraceRecorder | None = None) -> list[Trace]:
     return [run_scenario(n, rec) for n in names]
 
 
-def run_case_for_eval(case: EvalCase, recorder: TraceRecorder) -> Tuple[Any, Trace | None]:
+def run_case_for_eval(case: EvalCase, recorder: TraceRecorder) -> tuple[Any, Trace | None]:
     scenario = case.input.get("scenario", case.id)
     trace = run_scenario(scenario, recorder)
     output = {

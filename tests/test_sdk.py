@@ -6,11 +6,13 @@ from agenttrace.recorder import TraceRecorder
 
 def test_trace_session_tree(tmp_path):
     rec = TraceRecorder(tmp_path / "t.db")
-    with TraceSession("test", recorder=rec) as session:
-        with session.span("root", SpanKind.WORKFLOW) as root:
-            root.output = 1
-            with session.span("child", SpanKind.TOOL) as child:
-                child.output = {"ok": True}
+    with (
+        TraceSession("test", recorder=rec) as session,
+        session.span("root", SpanKind.WORKFLOW) as root,
+    ):
+        root.output = 1
+        with session.span("child", SpanKind.TOOL) as child:
+            child.output = {"ok": True}
     tr = rec.get_trace(session.trace.id)
     assert tr is not None
     assert tr.status == TraceStatus.OK

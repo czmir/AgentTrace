@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import copy
 import time
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
-from agenttrace.core import Span, SpanKind, Trace, TokenUsage
+from agenttrace.core import SpanKind, Trace
 from agenttrace.recorder import TraceRecorder
 from agenttrace.session import TraceSession
 
@@ -36,16 +37,18 @@ def rerun_node(
         raise ValueError(f"Span {span_id} not found")
 
     name = session_name or f"replay:{trace.name}:{node['name']}"
-    with TraceSession(name, recorder=recorder, metadata={"replay_of": trace.id, "source_span": span_id}) as session:
-        with session.span(
+    with (
+        TraceSession(name, recorder=recorder, metadata={"replay_of": trace.id, "source_span": span_id}) as session,
+        session.span(
             f"replay_{node['name']}", SpanKind(node["kind"]), input=node["input"]
-        ) as span:
-            try:
-                result = handler(node)
-                span.output = result
-            except Exception as e:
-                session.end_span(span, error=str(e))
-                raise
+        ) as span,
+    ):
+        try:
+            result = handler(node)
+            span.output = result
+        except Exception as e:
+            session.end_span(span, error=str(e))
+            raise
     return session.trace
 
 

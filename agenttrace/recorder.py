@@ -8,7 +8,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from agenttrace.core import Trace, TraceStatus
+from agenttrace.core import Trace
 
 
 class TraceRecorder:

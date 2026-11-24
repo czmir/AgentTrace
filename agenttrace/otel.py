@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from agenttrace.core import Span, Trace
+from agenttrace.core import Trace
 
 
 def export_trace_to_otel_spans(trace: Trace) -> list[dict[str, Any]]:

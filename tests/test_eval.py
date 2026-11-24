@@ -2,7 +2,6 @@ from pathlib import Path
 
 from agenttrace.eval import EvalDataset, compare_eval_runs, run_eval_dataset
 from agenttrace.recorder import TraceRecorder
-
 from examples.demo_agent import run_case_for_eval
 
 
