@@ -1,4 +1,4 @@
-import { Link, Route, Routes, useParams } from "react-router-dom";
+import { Link, Route, Routes, useNavigate, useParams } from "react-router-dom";
 import { useEffect, useState } from "react";
 import {
   TraceSummary,
@@ -7,6 +7,7 @@ import {
   getTrace,
   getTree,
   listTraces,
+  replayTrace,
   runEval,
 } from "./api";
 
@@ -93,35 +94,59 @@ function SpanTree({ nodes, depth = 0 }: { nodes: Array<{ span: Record<string, un
 
 function TraceDetailPage() {
   const { id } = useParams();
+  const navigate = useNavigate();
   const [trace, setTrace] = useState<Record<string, unknown> | null>(null);
   const [tree, setTree] = useState<{ tree: unknown[]; timeline: unknown[] } | null>(null);
   const [diag, setDiag] = useState<{ findings: Array<Record<string, string>> } | null>(null);
   const [ctx, setCtx] = useState<Record<string, unknown> | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [replaying, setReplaying] = useState(false);
 
   useEffect(() => {
     if (!id) return;
-    Promise.all([getTrace(id), getTree(id), getDiagnostics(id), getContext(id)]).then(
-      ([t, tr, d, c]) => {
+    Promise.all([getTrace(id), getTree(id), getDiagnostics(id), getContext(id)])
+      .then(([t, tr, d, c]) => {
         setTrace(t);
         setTree(tr);
         setDiag(d);
         setCtx(c);
-      }
-    );
+      })
+      .catch((e) => setError(String(e)));
   }, [id]);
+
+  async function onReplay() {
+    if (!id) return;
+    setReplaying(true);
+    try {
+      const result = await replayTrace(id);
+      const newId = result.trace.id;
+      if (newId) navigate(`/traces/${newId}`);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setReplaying(false);
+    }
+  }
 
   if (!id) return null;
   return (
     <Layout>
       <Link to="/">← Back</Link>
       <h1>{String(trace?.name ?? id)}</h1>
+      {error && <div className="banner error">{error}</div>}
+      <div className="actions">
+        <button disabled={replaying} onClick={onReplay}>
+          {replaying ? "Replaying…" : "History replay"}
+        </button>
+        <span className="muted"> copies stored I/O — does not re-execute tools</span>
+      </div>
       <div className="grid">
         <section className="card">
           <h2>Span tree</h2>
           {tree?.tree?.length ? (
             <SpanTree nodes={tree.tree as Parameters<typeof SpanTree>[0]["nodes"]} />
           ) : (
-            <p className="muted">Loading…</p>
+            <p className="muted">{error ? "Unavailable" : "Loading…"}</p>
           )}
         </section>
         <section className="card">
@@ -161,11 +186,15 @@ function TraceDetailPage() {
 function EvalPage() {
   const [result, setResult] = useState<Record<string, unknown> | null>(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   async function onRun(path: string) {
     setLoading(true);
+    setError(null);
     try {
       setResult(await runEval(path));
+    } catch (e) {
+      setError(String(e));
     } finally {
       setLoading(false);
     }
@@ -175,6 +204,7 @@ function EvalPage() {
     <Layout>
       <h1>Eval</h1>
       <p className="muted">Golden datasets · batch assertions · version compare (CLI for diff)</p>
+      {error && <div className="banner error">{error}</div>}
       <div className="actions">
         <button disabled={loading} onClick={() => onRun("examples/eval/golden_v1.json")}>
           Run golden v1

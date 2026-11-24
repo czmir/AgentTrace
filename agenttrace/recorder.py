@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from agenttrace.core import Trace
+from agenttrace.redact import redact_trace_payload
 
 
 class TraceRecorder:
@@ -69,7 +70,7 @@ class TraceRecorder:
                 pass
 
     def save_trace(self, trace: Trace) -> None:
-        payload = json.dumps(trace.to_dict(), default=str)
+        payload = json.dumps(redact_trace_payload(trace.to_dict()), default=str)
         metadata = json.dumps(trace.metadata, default=str)
         now = time.time()
         with self._lock, self._connect() as conn:

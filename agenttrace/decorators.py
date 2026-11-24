@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import functools
+import inspect
 from collections.abc import Callable
 from typing import Any, TypeVar
 
@@ -17,10 +18,26 @@ def trace_span(
     capture_input: bool = True,
     capture_output: bool = True,
 ) -> Callable[[F], F]:
-    """Decorator that records a span in the active TraceSession."""
+    """Decorator that records a span in the active TraceSession (sync or async)."""
 
     def decorator(fn: F) -> F:
         span_name = name or fn.__qualname__
+
+        if inspect.iscoroutinefunction(fn):
+
+            @functools.wraps(fn)
+            async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
+                session = get_current_session()
+                if session is None:
+                    return await fn(*args, **kwargs)
+                inp = {"args": args, "kwargs": kwargs} if capture_input else None
+                async with session.aspan(span_name, kind, input=inp) as span:
+                    result = await fn(*args, **kwargs)
+                    if capture_output:
+                        span.output = result
+                    return result
+
+            return async_wrapper  # type: ignore[return-value]
 
         @functools.wraps(fn)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
@@ -28,15 +45,11 @@ def trace_span(
             if session is None:
                 return fn(*args, **kwargs)
             inp = {"args": args, "kwargs": kwargs} if capture_input else None
-            span = session.start_span(span_name, kind, input=inp)
-            try:
+            with session.span(span_name, kind, input=inp) as span:
                 result = fn(*args, **kwargs)
-            except Exception as e:
-                session.end_span(span, error=str(e))
-                raise
-            out = result if capture_output else None
-            session.end_span(span, output=out)
-            return result
+                if capture_output:
+                    span.output = result
+                return result
 
         return wrapper  # type: ignore[return-value]
 

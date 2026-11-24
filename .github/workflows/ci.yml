@@ -14,19 +14,24 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Install
-        run: |
-          pip install -e ".[dev,server]"
-          pip install -r backend/requirements.txt
-      - name: Lint
-        run: ruff check agenttrace tests examples
-      - name: Pytest
-        run: pytest -q --tb=short
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
+      - name: Install Python
+        run: |
+          pip install -U pip
+          pip install -e ".[dev,server,integrations]"
+          pip install -r backend/requirements.txt
+      - name: Lint
+        run: ruff check agenttrace tests examples
       - name: Frontend build
         working-directory: frontend
         run: |
-          npm install
+          npm ci
           npm run build
+      - name: Playwright Chromium
+        run: python -m playwright install chromium --with-deps
+      - name: Pytest
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: pytest -q --tb=short

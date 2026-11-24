@@ -5,3 +5,4 @@ cd "$ROOT"
 export AGENTTRACE_DB="$ROOT/data/traces.db"
 mkdir -p data
 python examples/demo_agent.py
+python scripts/capture_ui.py

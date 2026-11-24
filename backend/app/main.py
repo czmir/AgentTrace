@@ -9,7 +9,9 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -18,20 +20,27 @@ if str(ROOT) not in sys.path:
 
 from agenttrace.context_analysis import analyze_context
 from agenttrace.diagnostics import analyze_trace
-from agenttrace.eval import EvalDataset, run_eval_dataset
+from agenttrace.eval import EvalConfigError, EvalDataset, run_eval_dataset
 from agenttrace.recorder import TraceRecorder
-from agenttrace.replay import extract_node_inputs, rerun_node
+from agenttrace.replay import ReplayController, ReplayMode, extract_node_inputs
 from agenttrace.skills import SkillDefinition, debug_skill_io, run_skill_standalone
 
 DB_PATH = os.environ.get("AGENTTRACE_DB", str(ROOT / "data" / "traces.db"))
 recorder = TraceRecorder(DB_PATH)
+DIST = ROOT / "frontend" / "dist"
 
-app = FastAPI(title="AgentTrace API", version="0.1.0")
+app = FastAPI(title="AgentTrace API", version="0.2.0")
+
+_cors_raw = os.environ.get(
+    "AGENTTRACE_CORS",
+    "http://127.0.0.1:4321,http://localhost:4321,http://127.0.0.1:8765,http://localhost:8765",
+)
+_origins = [o.strip() for o in _cors_raw.split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
+    allow_origins=_origins,
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 
@@ -50,7 +59,7 @@ recorder.subscribe(_on_event)
 
 @app.get("/health")
 def health() -> dict[str, str]:
-    return {"status": "ok", "db": DB_PATH}
+    return {"status": "ok", "db": DB_PATH, "version": "0.2.0"}
 
 
 @app.get("/api/traces")
@@ -99,7 +108,11 @@ def delete_trace(trace_id: str) -> dict:
 
 
 class ReplayRequest(BaseModel):
-    span_id: str
+    span_id: str | None = None
+    mode: str = Field(default=ReplayMode.HISTORY.value)
+    allow_side_effects: bool = False
+    confirm: bool = False
+    bind_version: str | None = None
 
 
 @app.post("/api/traces/{trace_id}/replay")
@@ -107,15 +120,24 @@ def replay_node(trace_id: str, body: ReplayRequest) -> dict:
     tr = recorder.get_trace(trace_id)
     if not tr:
         raise HTTPException(404, "trace not found")
-    node = extract_node_inputs(tr, body.span_id)
-    if not node:
-        raise HTTPException(404, "span not found")
+    if body.span_id:
+        node = extract_node_inputs(tr, body.span_id)
+        if not node:
+            raise HTTPException(404, "span not found")
 
-    def echo_handler(n: dict) -> dict:
-        return {"replayed": True, "input": n.get("input")}
-
-    new_trace = rerun_node(tr, body.span_id, echo_handler, recorder=recorder)
-    return new_trace.to_dict()
+    mode = (body.mode or ReplayMode.HISTORY.value).lower()
+    controller = ReplayController()
+    if mode == ReplayMode.HISTORY.value:
+        new_trace = controller.replay_history(tr, recorder=recorder, span_id=body.span_id)
+        return {"mode": mode, "trace": new_trace.to_dict()}
+    if mode == ReplayMode.REEXECUTE.value:
+        raise HTTPException(
+            400,
+            "reexecute requires an in-process HandlerRegistry; "
+            "HTTP API only supports mode=history (no side effects). "
+            "Use ReplayController.reexecute() in your agent process.",
+        )
+    raise HTTPException(400, f"unknown replay mode {mode!r}; use 'history' or 'reexecute'")
 
 
 class SkillDebugBody(BaseModel):
@@ -147,7 +169,12 @@ def run_eval(body: dict) -> dict:
     path = body.get("dataset_path")
     if not path:
         raise HTTPException(400, "dataset_path required")
-    dataset = EvalDataset.load(ROOT / path)
+    try:
+        dataset = EvalDataset.load(ROOT / path)
+    except EvalConfigError as e:
+        raise HTTPException(400, str(e)) from e
+    except FileNotFoundError:
+        raise HTTPException(404, f"dataset not found: {path}") from None
     from examples.demo_agent import run_case_for_eval
 
     summary = run_eval_dataset(dataset, lambda c: run_case_for_eval(c, recorder), recorder=recorder)
@@ -165,3 +192,31 @@ async def sse_events() -> EventSourceResponse:
                 yield {"event": "ping", "data": "{}"}
 
     return EventSourceResponse(stream())
+
+
+if (DIST / "assets").is_dir():
+    app.mount("/assets", StaticFiles(directory=str(DIST / "assets")), name="assets")
+
+
+@app.get("/", response_model=None)
+def spa_index() -> dict | FileResponse:
+    index = DIST / "index.html"
+    if index.exists():
+        return FileResponse(index)
+    return {"service": "agenttrace-api", "version": "0.2.0", "ui": "frontend/dist not built"}
+
+
+@app.get("/{full_path:path}", response_model=None)
+def spa_fallback(full_path: str) -> FileResponse:
+    if full_path.startswith("api/") or full_path.split("/", 1)[0] in {
+        "health",
+        "docs",
+        "openapi.json",
+        "redoc",
+        "assets",
+    }:
+        raise HTTPException(404, "not found")
+    index = DIST / "index.html"
+    if index.exists():
+        return FileResponse(index)
+    raise HTTPException(404, "frontend not built")

@@ -7,8 +7,14 @@ services:
       - "8765:8765"
     environment:
       AGENTTRACE_DB: /data/traces.db
+      AGENTTRACE_CORS: "http://127.0.0.1:4321,http://localhost:4321"
     volumes:
       - agenttrace_data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8765/health')"]
+      interval: 10s
+      timeout: 3s
+      retries: 8
   ui:
     build:
       context: .
@@ -16,7 +22,8 @@ services:
     ports:
       - "4321:4321"
     depends_on:
-      - api
+      api:
+        condition: service_healthy
 
 volumes:
   agenttrace_data:

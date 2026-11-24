@@ -44,3 +44,14 @@ async def test_api_list_traces(db_path, monkeypatch):
         assert "timeline" in tree.json()
         diag = await client.get(f"/api/traces/{tid}/diagnostics")
         assert diag.status_code == 200
+        replay = await client.post(
+            f"/api/traces/{tid}/replay", json={"mode": "history"}
+        )
+        assert replay.status_code == 200
+        assert replay.json()["mode"] == "history"
+        blocked = await client.post(
+            f"/api/traces/{tid}/replay", json={"mode": "reexecute"}
+        )
+        assert blocked.status_code == 400
+        bad_eval = await client.post("/api/eval/run", json={"dataset_path": "missing.json"})
+        assert bad_eval.status_code in (400, 404)
