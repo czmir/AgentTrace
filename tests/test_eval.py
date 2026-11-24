@@ -10,7 +10,8 @@ def test_golden_eval_v1(tmp_path):
     dataset = EvalDataset.load(Path("examples/eval/golden_v1.json"))
     summary = run_eval_dataset(dataset, lambda c: run_case_for_eval(c, rec), recorder=rec)
     assert summary.total == len(dataset.cases)
-    assert summary.passed >= 3
+    assert summary.failed == 0, [r.failures for r in summary.results]
+    assert summary.passed == summary.total
 
 
 def test_eval_regression_compare(tmp_path):

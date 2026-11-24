@@ -1,13 +1,84 @@
+"""Replay: history reconstruction vs real re-execute.
+
+History replay copies stored I/O into a new trace and never calls handlers.
+Re-execute calls a HandlerRegistry, honors version bind, side-effect limits,
+and human confirmation.
+"""
+
 from __future__ import annotations
 
 import copy
 import time
 from collections.abc import Callable
+from enum import Enum
 from typing import Any
 
-from agenttrace.core import SpanKind, Trace
+from agenttrace.core import Span, SpanKind, Trace, TraceStatus
 from agenttrace.recorder import TraceRecorder
 from agenttrace.session import TraceSession
+
+
+class ReplayMode(str, Enum):
+    HISTORY = "history"
+    REEXECUTE = "reexecute"
+
+
+class ReplayBlocked(RuntimeError):
+    """Re-execute refused (missing handler, version mismatch, side-effect, human)."""
+
+
+class HandlerSpec:
+    def __init__(
+        self,
+        name: str,
+        handler: Callable[[Any], Any],
+        *,
+        version: str | None = None,
+        side_effects: bool = False,
+        requires_confirm: bool = False,
+        kind: SpanKind | None = None,
+    ) -> None:
+        self.name = name
+        self.handler = handler
+        self.version = version
+        self.side_effects = side_effects
+        self.requires_confirm = requires_confirm
+        self.kind = kind
+
+
+class HandlerRegistry:
+    """Name → handler with version / side-effect / confirm metadata."""
+
+    def __init__(self) -> None:
+        self._handlers: dict[str, HandlerSpec] = {}
+
+    def register(
+        self,
+        name: str,
+        handler: Callable[[Any], Any],
+        *,
+        version: str | None = None,
+        side_effects: bool = False,
+        requires_confirm: bool = False,
+        kind: SpanKind | None = None,
+    ) -> None:
+        self._handlers[name] = HandlerSpec(
+            name,
+            handler,
+            version=version,
+            side_effects=side_effects,
+            requires_confirm=requires_confirm,
+            kind=kind,
+        )
+
+    def get(self, name: str) -> HandlerSpec | None:
+        return self._handlers.get(name)
+
+    def names(self) -> list[str]:
+        return sorted(self._handlers)
+
+    def __contains__(self, name: str) -> bool:
+        return name in self._handlers
 
 
 def extract_node_inputs(trace: Trace, span_id: str) -> dict[str, Any] | None:
@@ -20,7 +91,144 @@ def extract_node_inputs(trace: Trace, span_id: str) -> dict[str, Any] | None:
         "kind": span.kind.value,
         "input": copy.deepcopy(span.input),
         "attributes": copy.deepcopy(span.attributes),
+        "output": copy.deepcopy(span.output),
+        "error": span.error,
     }
+
+
+def _confirm_ok(confirm: bool | Callable[[Span], bool], span: Span) -> bool:
+    if callable(confirm):
+        return bool(confirm(span))
+    return bool(confirm)
+
+
+class ReplayController:
+    """History replay (no side effects) vs real re-execute with a registry."""
+
+    def __init__(self, delay_ms: float = 0) -> None:
+        self.delay_ms = delay_ms
+
+    def replay_history(
+        self,
+        trace: Trace,
+        *,
+        recorder: TraceRecorder | None = None,
+        span_id: str | None = None,
+    ) -> Trace:
+        """Reconstruct stored I/O. Does not call handlers. Not a re-execute."""
+        spans = self._select_spans(trace, span_id)
+        meta = {
+            "replay_of": trace.id,
+            "replay_mode": ReplayMode.HISTORY.value,
+            "source_span": span_id,
+        }
+        with TraceSession(f"history_replay:{trace.id}", recorder=recorder, metadata=meta) as session:
+            for src in spans:
+                if self.delay_ms:
+                    time.sleep(self.delay_ms / 1000)
+                with session.span(src.name, src.kind, input=src.input, attributes=src.attributes) as span:
+                    span.output = copy.deepcopy(src.output)
+                    span.tokens = src.tokens
+                    if src.error:
+                        span.error = src.error
+            session.trace.finish(trace.status)
+        return session.trace
+
+    def reexecute(
+        self,
+        trace: Trace,
+        registry: HandlerRegistry,
+        *,
+        recorder: TraceRecorder | None = None,
+        span_id: str | None = None,
+        allow_side_effects: bool = False,
+        confirm: bool | Callable[[Span], bool] = False,
+        bind_version: str | None = None,
+        skip_missing: bool = False,
+    ) -> Trace:
+        """Call registered handlers. Blocked on version / side-effect / human unless allowed."""
+        spans = self._select_spans(trace, span_id)
+        meta = {
+            "replay_of": trace.id,
+            "replay_mode": ReplayMode.REEXECUTE.value,
+            "bind_version": bind_version,
+            "allow_side_effects": allow_side_effects,
+            "source_span": span_id,
+        }
+        blocked: list[str] = []
+        with TraceSession(f"reexecute:{trace.id}", recorder=recorder, metadata=meta) as session:
+            for src in spans:
+                if self.delay_ms:
+                    time.sleep(self.delay_ms / 1000)
+                spec = registry.get(src.name)
+                needs_confirm = src.kind == SpanKind.HUMAN or (spec is not None and spec.requires_confirm)
+                attrs = dict(src.attributes or {})
+                if spec is None:
+                    msg = f"no handler registered for {src.name!r}"
+                    if skip_missing:
+                        with session.span(src.name, src.kind, input=src.input, attributes={**attrs, "skipped": "no_handler"}):
+                            pass
+                        continue
+                    blocked.append(msg)
+                    with session.span(src.name, src.kind, input=src.input) as span:
+                        session.end_span(span, error=msg)
+                    continue
+                if bind_version is not None and spec.version != bind_version:
+                    msg = (
+                        f"version bind failed for {src.name!r}: "
+                        f"handler={spec.version!r} required={bind_version!r}"
+                    )
+                    blocked.append(msg)
+                    with session.span(src.name, src.kind, input=src.input) as span:
+                        session.end_span(span, error=msg)
+                    continue
+                if spec.side_effects and not allow_side_effects:
+                    msg = f"side-effect handler {src.name!r} blocked (allow_side_effects=False)"
+                    blocked.append(msg)
+                    with session.span(
+                        src.name, src.kind, input=src.input, attributes={**attrs, "skipped": "side_effect"}
+                    ) as span:
+                        session.end_span(span, error=msg)
+                    continue
+                if needs_confirm and not _confirm_ok(confirm, src):
+                    msg = f"human confirmation required for {src.name!r}"
+                    blocked.append(msg)
+                    with session.span(
+                        src.name, src.kind, input=src.input, attributes={**attrs, "skipped": "human_confirm"}
+                    ) as span:
+                        session.end_span(span, error=msg)
+                    continue
+                with session.span(src.name, src.kind, input=src.input, attributes=attrs) as span:
+                    try:
+                        span.output = spec.handler(src.input)
+                    except Exception as e:
+                        session.end_span(span, error=str(e))
+            if blocked:
+                session.trace.finish(TraceStatus.ERROR)
+                session.trace.metadata["replay_blocked"] = blocked
+        return session.trace
+
+    def replay_trace(
+        self,
+        trace: Trace,
+        handlers: dict[str, Callable[[Any], Any]],
+        *,
+        recorder: TraceRecorder | None = None,
+    ) -> Trace:
+        """Backward-compatible re-execute from a plain name→callable map."""
+        registry = HandlerRegistry()
+        for name, fn in handlers.items():
+            registry.register(name, fn)
+        return self.reexecute(trace, registry, recorder=recorder, skip_missing=True)
+
+    @staticmethod
+    def _select_spans(trace: Trace, span_id: str | None) -> list[Span]:
+        if span_id is None:
+            return sorted(trace.spans, key=lambda s: s.start_ns)
+        span = trace.span_by_id(span_id)
+        if span is None:
+            raise ValueError(f"Span {span_id} not found")
+        return [span]
 
 
 def rerun_node(
@@ -38,10 +246,16 @@ def rerun_node(
 
     name = session_name or f"replay:{trace.name}:{node['name']}"
     with (
-        TraceSession(name, recorder=recorder, metadata={"replay_of": trace.id, "source_span": span_id}) as session,
-        session.span(
-            f"replay_{node['name']}", SpanKind(node["kind"]), input=node["input"]
-        ) as span,
+        TraceSession(
+            name,
+            recorder=recorder,
+            metadata={
+                "replay_of": trace.id,
+                "source_span": span_id,
+                "replay_mode": ReplayMode.REEXECUTE.value,
+            },
+        ) as session,
+        session.span(f"replay_{node['name']}", SpanKind(node["kind"]), input=node["input"]) as span,
     ):
         try:
             result = handler(node)
@@ -50,32 +264,3 @@ def rerun_node(
             session.end_span(span, error=str(e))
             raise
     return session.trace
-
-
-class ReplayController:
-    """Controlled replay with optional step delay (for demos/tests)."""
-
-    def __init__(self, delay_ms: float = 0) -> None:
-        self.delay_ms = delay_ms
-
-    def replay_trace(
-        self,
-        trace: Trace,
-        handlers: dict[str, Callable[[Any], Any]],
-        *,
-        recorder: TraceRecorder | None = None,
-    ) -> Trace:
-        ordered = sorted(trace.spans, key=lambda s: s.start_ns)
-        with TraceSession(f"full_replay:{trace.id}", recorder=recorder, metadata={"replay_of": trace.id}) as session:
-            for src in ordered:
-                if self.delay_ms:
-                    time.sleep(self.delay_ms / 1000)
-                handler = handlers.get(src.name)
-                if not handler:
-                    continue
-                with session.span(src.name, src.kind, input=src.input) as span:
-                    try:
-                        span.output = handler(src.input)
-                    except Exception as e:
-                        session.end_span(span, error=str(e))
-        return session.trace

@@ -124,6 +124,10 @@ nav a {
   margin-bottom: 1rem;
 }
 
+.actions {
+  margin: 0.75rem 0 1rem;
+}
+
 .actions button {
   background: var(--accent);
   color: #041018;
@@ -132,6 +136,12 @@ nav a {
   border-radius: 8px;
   cursor: pointer;
   font-weight: 600;
+  margin-right: 0.5rem;
+}
+
+.actions button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .timeline {
