@@ -1,0 +1,22 @@
+{
+  "name": "agenttrace-smoke",
+  "version": "2",
+  "model": "mock-gpt-4o-mini",
+  "prompt_version": "v2-broken",
+  "cases": [
+    {
+      "id": "normal_call",
+      "input": { "scenario": "normal_call" },
+      "expected": { "status": "error" },
+      "assertions": [{ "type": "path_eq", "path": "status", "expected": "error" }],
+      "tags": ["regression-demo"]
+    },
+    {
+      "id": "tool_failure",
+      "input": { "scenario": "tool_failure" },
+      "expected": { "status": "error" },
+      "assertions": [{ "type": "path_eq", "path": "status", "expected": "error" }],
+      "tags": ["failure"]
+    }
+  ]
+}
