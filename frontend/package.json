@@ -9,12 +9,12 @@
     "preview": "vite preview --port 4321"
   },
   "dependencies": {
-    "react": "^18.3.1",
+    "react": "^19.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.26.0"
   },
   "devDependencies": {
-    "@types/react": "^18.3.3",
+    "@types/react": "^19.3.2",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.1",
     "typescript": "^5.5.4",
