@@ -62,3 +62,18 @@ export async function runEval(datasetPath: string) {
   });
   return parseJson(r, "eval failed");
 }
+
+export type RecoveryDemo = {
+  failed_trace: string;
+  history_trace: string;
+  retry_trace: string;
+  retry_status: string;
+  diagnostics: { code: string; message: string }[];
+  baseline: { passed: number; total: number };
+  candidate: { passed: number; total: number };
+};
+
+export async function runRecoveryDemo(): Promise<RecoveryDemo> {
+  const r = await fetch(`${base}/api/demo/order-recovery`, { method: "POST" });
+  return parseJson(r, "Recovery demo failed");
+}

@@ -117,7 +117,7 @@ class TraceSession:
             self.trace.root_span_id = span.id
         self._span_tokens[span.id] = _current_span_id.set(span.id)
         if self.recorder:
-            self.recorder.save_trace(self.trace)
+            self.recorder.save_span(self.trace, span)
             self.recorder.emit_event(
                 "span_started",
                 {"trace_id": self.trace.id, "span_id": span.id, "name": name},
@@ -144,7 +144,7 @@ class TraceSession:
         if token is not None and _current_span_id.get() == span.id:
             _current_span_id.reset(token)
         if self.recorder:
-            self.recorder.save_trace(self.trace)
+            self.recorder.save_span(self.trace, span)
             self.recorder.emit_event(
                 "span_finished",
                 {

@@ -9,6 +9,8 @@ import {
   listTraces,
   replayTrace,
   runEval,
+  runRecoveryDemo,
+  type RecoveryDemo,
 } from "./api";
 
 function Layout({ children }: { children: React.ReactNode }) {
@@ -185,6 +187,7 @@ function TraceDetailPage() {
 
 function EvalPage() {
   const [result, setResult] = useState<Record<string, unknown> | null>(null);
+  const [recovery, setRecovery] = useState<RecoveryDemo | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -193,6 +196,19 @@ function EvalPage() {
     setError(null);
     try {
       setResult(await runEval(path));
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function onRecovery() {
+    setLoading(true);
+    setError(null);
+    setRecovery(null);
+    try {
+      setRecovery(await runRecoveryDemo());
     } catch (e) {
       setError(String(e));
     } finally {
@@ -209,7 +225,21 @@ function EvalPage() {
         <button disabled={loading} onClick={() => onRun("examples/eval/golden_v1.json")}>
           Run golden v1
         </button>
+        <button disabled={loading} onClick={onRecovery}>Run LangGraph recovery</button>
       </div>
+      {loading && <p role="status">Running evaluation…</p>}
+      {recovery && (
+        <section className="card" aria-label="Order recovery results">
+          <h2>Order lookup recovery</h2>
+          <p>{recovery.diagnostics.map((finding) => finding.message).join(" ")}</p>
+          <ol>
+            <li><Link to={`/traces/${recovery.failed_trace}`}>Inspect the failed run</Link></li>
+            <li><Link to={`/traces/${recovery.history_trace}`}>View the recorded call tree</Link></li>
+            <li><Link to={`/traces/${recovery.retry_trace}`}>Inspect the corrected tool call</Link> · {recovery.retry_status}</li>
+          </ol>
+          <p>Baseline {recovery.baseline.passed}/{recovery.baseline.total} · Candidate {recovery.candidate.passed}/{recovery.candidate.total}</p>
+        </section>
+      )}
       {result && (
         <pre className="code">{JSON.stringify(result, null, 2)}</pre>
       )}

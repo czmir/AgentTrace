@@ -6,7 +6,7 @@ from agenttrace.recorder import TraceRecorder
 from agenttrace.replay import HandlerRegistry, ReplayController, ReplayMode
 from agenttrace.session import TraceSession, get_current_session, get_current_span_id
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 __all__ = [
     "HandlerRegistry",
     "ReplayController",

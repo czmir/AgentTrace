@@ -4,7 +4,7 @@ services:
       context: .
       dockerfile: deploy/Dockerfile.api
     ports:
-      - "8765:8765"
+      - "127.0.0.1:8765:8765"
     environment:
       AGENTTRACE_DB: /data/traces.db
       AGENTTRACE_CORS: "http://127.0.0.1:4321,http://localhost:4321"
@@ -20,7 +20,7 @@ services:
       context: .
       dockerfile: deploy/Dockerfile.ui
     ports:
-      - "4321:4321"
+      - "127.0.0.1:4321:4321"
     depends_on:
       api:
         condition: service_healthy

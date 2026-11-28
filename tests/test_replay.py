@@ -78,3 +78,34 @@ def test_missing_handler_fails_without_skip(tmp_path):
 
 def test_replay_blocked_type_exists():
     assert issubclass(ReplayBlocked, RuntimeError)
+
+
+def test_history_replay_preserves_tree(tmp_path):
+    rec = TraceRecorder(tmp_path / "history.db")
+    with TraceSession("original") as session:
+        with session.span("workflow"):
+            with session.span("tool") as tool:
+                tool.error = "failed"
+
+    replay = ReplayController().replay_history(session.trace, recorder=rec)
+    stored = rec.get_trace(replay.id)
+    root, child = stored.spans
+    assert (root.name, child.name) == ("workflow", "tool")
+    assert stored.root_span_id == child.parent_id == root.id
+    assert child.id != tool.id
+    assert child.error == tool.error
+    assert child.duration_ms == tool.duration_ms
+
+
+def test_handler_failure_marks_reexecution_failed(tmp_path):
+    rec, trace = _sample(tmp_path)
+    registry = HandlerRegistry()
+
+    def fail(_input):
+        raise ValueError("lookup failed")
+
+    registry.register("search_kb", fail)
+    source = trace.spans[0]
+    replay = ReplayController().reexecute(trace, registry, recorder=rec, span_id=source.id)
+    assert replay.status == TraceStatus.ERROR
+    assert replay.spans[0].error == "lookup failed"

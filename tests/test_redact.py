@@ -1,3 +1,6 @@
+import json
+import sqlite3
+
 from agenttrace.core import SpanKind
 from agenttrace.recorder import TraceRecorder
 from agenttrace.redact import REDACTED, redact_value
@@ -39,3 +42,18 @@ def test_recorder_persists_redacted(tmp_path):
 
 def test_password_field():
     assert redact_value({"password": "hunter2"})["password"] == REDACTED
+
+
+def test_list_metadata_is_redacted_for_new_and_legacy_rows(tmp_path):
+    db_path = tmp_path / "traces.db"
+    rec = TraceRecorder(db_path)
+    raw_metadata = {"headers": {"Authorization": "test-credential"}, "case": "weather"}
+    expected = {"headers": {"Authorization": REDACTED}, "case": "weather"}
+    with TraceSession("example", recorder=rec, metadata=raw_metadata):
+        pass
+
+    with sqlite3.connect(db_path) as conn:
+        assert json.loads(conn.execute("SELECT metadata FROM traces").fetchone()[0]) == expected
+        conn.execute("UPDATE traces SET metadata = ?", (json.dumps(raw_metadata),))
+
+    assert rec.list_traces()[0]["metadata"] == expected

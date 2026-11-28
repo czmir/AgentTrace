@@ -9,7 +9,7 @@ if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
 python -m venv .venv
 & .\.venv\Scripts\Activate.ps1
 python -m pip install -U pip
-pip install -e ".[dev,server]"
+pip install -e ".[dev,server,integrations]"
 pip install -r backend/requirements.txt
 
 New-Item -ItemType Directory -Force -Path data | Out-Null
@@ -19,5 +19,5 @@ python examples/demo_agent.py
 Write-Host "Starting API on :8765 and UI on :4321"
 Start-Process -NoNewWindow -FilePath "uvicorn" -ArgumentList "backend.app.main:app","--host","127.0.0.1","--port","8765"
 Set-Location frontend
-if (-not (Test-Path node_modules)) { npm install }
+if (-not (Test-Path node_modules)) { npm ci }
 npm run dev

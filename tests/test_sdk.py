@@ -4,6 +4,24 @@ from agenttrace.diagnostics import analyze_trace
 from agenttrace.recorder import TraceRecorder
 
 
+def test_open_session_is_readable_from_another_recorder(tmp_path):
+    path = tmp_path / "live.db"
+    writer = TraceRecorder(path)
+    reader = TraceRecorder(path)
+    with TraceSession("partial", recorder=writer) as session:
+        with session.span("root") as root:
+            with session.span("tool") as child:
+                child.output = {"result": "ok"}
+            live = reader.get_trace(session.trace.id)
+            assert live.root_span_id == root.id
+            assert live.spans[0].end_ns is None
+            assert live.spans[1].parent_id == root.id
+            assert live.spans[1].output == {"result": "ok"}
+    finished = reader.get_trace(session.trace.id)
+    assert [span.id for span in finished.spans] == [root.id, child.id]
+    assert finished.spans[0].end_ns is not None
+
+
 def test_trace_session_tree(tmp_path):
     rec = TraceRecorder(tmp_path / "t.db")
     with (
