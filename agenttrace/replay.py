@@ -123,14 +123,24 @@ class ReplayController:
             "source_span": span_id,
         }
         with TraceSession(f"history_replay:{trace.id}", recorder=recorder, metadata=meta) as session:
+            span_ids: dict[str, str] = {}
+            offset_ns = time.time_ns() - spans[0].start_ns if spans else 0
             for src in spans:
                 if self.delay_ms:
                     time.sleep(self.delay_ms / 1000)
-                with session.span(src.name, src.kind, input=src.input, attributes=src.attributes) as span:
-                    span.output = copy.deepcopy(src.output)
-                    span.tokens = src.tokens
-                    if src.error:
-                        span.error = src.error
+                span = Span(
+                    trace_id=session.trace.id,
+                    parent_id=span_ids.get(src.parent_id) if src.parent_id else None,
+                    **src.model_copy(deep=True).model_dump(
+                        exclude={"id", "trace_id", "parent_id", "start_ns", "end_ns"},
+                    ),
+                    start_ns=src.start_ns + offset_ns,
+                    end_ns=src.end_ns + offset_ns if src.end_ns is not None else None,
+                )
+                span_ids[src.id] = span.id
+                session.trace.add_span(span)
+                if span.parent_id is None and session.trace.root_span_id is None:
+                    session.trace.root_span_id = span.id
             session.trace.finish(trace.status)
         return session.trace
 
@@ -156,6 +166,7 @@ class ReplayController:
             "source_span": span_id,
         }
         blocked: list[str] = []
+        handler_failed = False
         with TraceSession(f"reexecute:{trace.id}", recorder=recorder, metadata=meta) as session:
             for src in spans:
                 if self.delay_ms:
@@ -203,8 +214,10 @@ class ReplayController:
                         span.output = spec.handler(src.input)
                     except Exception as e:
                         session.end_span(span, error=str(e))
-            if blocked:
+                        handler_failed = True
+            if blocked or handler_failed:
                 session.trace.finish(TraceStatus.ERROR)
+            if blocked:
                 session.trace.metadata["replay_blocked"] = blocked
         return session.trace
 

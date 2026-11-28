@@ -4,7 +4,7 @@ COPY pyproject.toml README.md ./
 COPY agenttrace ./agenttrace
 COPY backend ./backend
 COPY examples ./examples
-RUN pip install --no-cache-dir -e ".[server]"
+RUN pip install --no-cache-dir -e ".[server,integrations]"
 RUN pip install --no-cache-dir -r backend/requirements.txt
 ENV AGENTTRACE_DB=/data/traces.db
 EXPOSE 8765

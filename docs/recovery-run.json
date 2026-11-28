@@ -1,0 +1,92 @@
+{
+  "failed_trace": "258c587c4ab6",
+  "failed_span": "7a2f477df06347bf",
+  "diagnostics": [
+    {
+      "code": "tool_failure",
+      "message": "Tool 'lookup_order' failed: Order ' a-104 ' was not found",
+      "span_id": "7a2f477df06347bf",
+      "severity": "error"
+    }
+  ],
+  "history_trace": "388b115d272b",
+  "retry_trace": "61e3b729613c",
+  "retry_status": "ok",
+  "retry_output": {
+    "status": "shipped"
+  },
+  "baseline": {
+    "id": "f8de6f69b42a",
+    "dataset": "order-id-normalization",
+    "passed": 1,
+    "failed": 1,
+    "total": 2,
+    "duration_ms": 148.9250659942627,
+    "results": [
+      {
+        "case_id": "mixed-case-and-whitespace",
+        "passed": false,
+        "trace_id": "258c587c4ab6",
+        "failures": [
+          "status: expected 'shipped', got None"
+        ],
+        "output": {
+          "error": "Order ' a-104 ' was not found"
+        }
+      },
+      {
+        "case_id": "canonical-id",
+        "passed": true,
+        "trace_id": "411566081616",
+        "failures": [],
+        "output": {
+          "order_id": "B-201",
+          "status": "processing"
+        }
+      }
+    ],
+    "model_version": null,
+    "prompt_version": null
+  },
+  "candidate": {
+    "id": "8dd369cbcf33",
+    "dataset": "order-id-normalization",
+    "passed": 2,
+    "failed": 0,
+    "total": 2,
+    "duration_ms": 154.7248363494873,
+    "results": [
+      {
+        "case_id": "mixed-case-and-whitespace",
+        "passed": true,
+        "trace_id": "67ff59428cb5",
+        "failures": [],
+        "output": {
+          "order_id": " a-104 ",
+          "status": "shipped"
+        }
+      },
+      {
+        "case_id": "canonical-id",
+        "passed": true,
+        "trace_id": "469fcf7c10eb",
+        "failures": [],
+        "output": {
+          "order_id": "B-201",
+          "status": "processing"
+        }
+      }
+    ],
+    "model_version": null,
+    "prompt_version": null
+  },
+  "comparison": {
+    "baseline": "f8de6f69b42a",
+    "candidate": "8dd369cbcf33",
+    "regressions": [],
+    "fixes": [
+      "mixed-case-and-whitespace"
+    ],
+    "pass_rate_delta": 0.5
+  }
+}

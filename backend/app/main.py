@@ -18,6 +18,7 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from agenttrace import __version__
 from agenttrace.context_analysis import analyze_context
 from agenttrace.diagnostics import analyze_trace
 from agenttrace.eval import EvalConfigError, EvalDataset, run_eval_dataset
@@ -29,7 +30,7 @@ DB_PATH = os.environ.get("AGENTTRACE_DB", str(ROOT / "data" / "traces.db"))
 recorder = TraceRecorder(DB_PATH)
 DIST = ROOT / "frontend" / "dist"
 
-app = FastAPI(title="AgentTrace API", version="0.2.0")
+app = FastAPI(title="AgentTrace API", version=__version__)
 
 _cors_raw = os.environ.get(
     "AGENTTRACE_CORS",
@@ -59,7 +60,7 @@ recorder.subscribe(_on_event)
 
 @app.get("/health")
 def health() -> dict[str, str]:
-    return {"status": "ok", "db": DB_PATH, "version": "0.2.0"}
+    return {"status": "ok", "db": DB_PATH, "version": __version__}
 
 
 @app.get("/api/traces")
@@ -194,6 +195,17 @@ async def sse_events() -> EventSourceResponse:
     return EventSourceResponse(stream())
 
 
+@app.post("/api/demo/order-recovery")
+def order_recovery_demo() -> dict:
+    try:
+        from examples.integrations.langgraph_recovery import run_case
+    except ModuleNotFoundError as exc:
+        if exc.name != "langgraph":
+            raise
+        raise HTTPException(503, "Install the integrations extra to run the LangGraph demo") from exc
+    return run_case(Path(DB_PATH))
+
+
 if (DIST / "assets").is_dir():
     app.mount("/assets", StaticFiles(directory=str(DIST / "assets")), name="assets")
 
@@ -203,7 +215,7 @@ def spa_index() -> dict | FileResponse:
     index = DIST / "index.html"
     if index.exists():
         return FileResponse(index)
-    return {"service": "agenttrace-api", "version": "0.2.0", "ui": "frontend/dist not built"}
+    return {"service": "agenttrace-api", "version": __version__, "ui": "frontend/dist not built"}
 
 
 @app.get("/{full_path:path}", response_model=None)

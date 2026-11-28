@@ -8,7 +8,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from agenttrace.core import Trace
+from agenttrace.core import Span, Trace
 from agenttrace.redact import redact_trace_payload
 
 
@@ -43,6 +43,13 @@ class TraceRecorder:
                     updated_at REAL NOT NULL
                 );
                 CREATE INDEX IF NOT EXISTS idx_traces_started ON traces(started_at DESC);
+                CREATE TABLE IF NOT EXISTS live_spans (
+                    trace_id TEXT NOT NULL,
+                    span_id TEXT NOT NULL,
+                    started_ns INTEGER NOT NULL,
+                    payload TEXT NOT NULL,
+                    PRIMARY KEY (trace_id, span_id)
+                );
                 CREATE TABLE IF NOT EXISTS eval_runs (
                     id TEXT PRIMARY KEY,
                     dataset TEXT NOT NULL,
@@ -63,6 +70,7 @@ class TraceRecorder:
         return unsubscribe
 
     def emit_event(self, event: str, data: dict[str, Any]) -> None:
+        data = redact_trace_payload(data)
         for cb in list(self._subscribers):
             try:
                 cb(event, data)
@@ -70,8 +78,9 @@ class TraceRecorder:
                 pass
 
     def save_trace(self, trace: Trace) -> None:
-        payload = json.dumps(redact_trace_payload(trace.to_dict()), default=str)
-        metadata = json.dumps(trace.metadata, default=str)
+        safe_trace = redact_trace_payload(trace.to_dict())
+        payload = json.dumps(safe_trace, default=str)
+        metadata = json.dumps(safe_trace["metadata"], default=str)
         now = time.time()
         with self._lock, self._connect() as conn:
             conn.execute(
@@ -87,7 +96,7 @@ class TraceRecorder:
                 """,
                 (
                     trace.id,
-                    trace.name,
+                    safe_trace["name"],
                     trace.status.value,
                     trace.started_at,
                     trace.ended_at,
@@ -96,15 +105,46 @@ class TraceRecorder:
                     now,
                 ),
             )
+            conn.execute("DELETE FROM live_spans WHERE trace_id = ?", (trace.id,))
+            conn.commit()
+        self.emit_event("trace_updated", {"trace_id": trace.id})
+
+    def save_span(self, trace: Trace, span: Span) -> None:
+        """Persist the current span while the trace session is open."""
+        payload = json.dumps(redact_trace_payload(span.to_dict()), default=str)
+        with self._lock, self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO live_spans (trace_id, span_id, started_ns, payload)
+                SELECT ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM traces WHERE id = ?)
+                ON CONFLICT(trace_id, span_id) DO UPDATE SET payload=excluded.payload
+                """,
+                (trace.id, span.id, span.start_ns, payload, trace.id),
+            )
             conn.commit()
         self.emit_event("trace_updated", {"trace_id": trace.id})
 
     def get_trace(self, trace_id: str) -> Trace | None:
         with self._lock, self._connect() as conn:
+            conn.execute("BEGIN")
             row = conn.execute("SELECT payload FROM traces WHERE id = ?", (trace_id,)).fetchone()
-        if not row:
-            return None
-        data = json.loads(row["payload"])
+            if not row:
+                return None
+            pending = conn.execute(
+                "SELECT payload FROM live_spans WHERE trace_id = ? ORDER BY started_ns, rowid",
+                (trace_id,),
+            ).fetchall()
+        data = redact_trace_payload(json.loads(row["payload"]))
+        if pending:
+            spans = {span["id"]: span for span in data.get("spans", [])}
+            for update in pending:
+                span = json.loads(update["payload"])
+                spans[span["id"]] = span
+            data["spans"] = list(spans.values())
+            if data.get("root_span_id") is None:
+                data["root_span_id"] = next(
+                    (span["id"] for span in spans.values() if span.get("parent_id") is None), None,
+                )
         return Trace.model_validate(data)
 
     def list_traces(self, limit: int = 50) -> list[dict[str, Any]]:
@@ -119,11 +159,11 @@ class TraceRecorder:
         return [
             {
                 "id": r["id"],
-                "name": r["name"],
+                "name": redact_trace_payload({"name": r["name"]})["name"],
                 "status": r["status"],
                 "started_at": r["started_at"],
                 "ended_at": r["ended_at"],
-                "metadata": json.loads(r["metadata"] or "{}"),
+                "metadata": redact_trace_payload(json.loads(r["metadata"] or "{}")),
             }
             for r in rows
         ]
@@ -131,6 +171,7 @@ class TraceRecorder:
     def delete_trace(self, trace_id: str) -> bool:
         with self._lock, self._connect() as conn:
             cur = conn.execute("DELETE FROM traces WHERE id = ?", (trace_id,))
+            conn.execute("DELETE FROM live_spans WHERE trace_id = ?", (trace_id,))
             conn.commit()
             return cur.rowcount > 0
 

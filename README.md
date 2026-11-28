@@ -6,6 +6,14 @@ AgentTrace is **local-first**, **independently installable**, and **not** a full
 
 [中文文档](README.zh-CN.md) · [Architecture](docs/architecture.md) · [Limitations](docs/LIMITATIONS.md) · [Windows](docs/windows.md) · [Test report](tests/TEST_REPORT.md) · [Security](SECURITY.md)
 
+## Walk through a failed agent run
+
+Open **Eval → Run LangGraph recovery** after quick start. The case uses a real asynchronous LangGraph workflow and a local order lookup. An order ID with spaces and lowercase letters fails, then a registered handler normalizes the same input and re-executes the failed tool. Follow the result links to inspect the original failure, the recorded call tree, and the corrected run. The regression check runs the graph again against both the broken and corrected implementations.
+
+![LangGraph order recovery results in AgentTrace](docs/screenshots/recovery-eval.png)
+
+[Failure diagnosis](docs/screenshots/recovery-failure.png) · [History replay](docs/screenshots/recovery-history.png) · [Animated walkthrough](docs/screenshots/recovery-demo.gif) · [Design and reproduction](docs/recovery.md)
+
 ![AgentTrace UI — trace list](docs/screenshots/trace-list.png)
 
 ![Trace detail — tree, timeline, diagnostics](docs/screenshots/trace-detail.png)
@@ -37,11 +45,11 @@ Or manually:
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev,server]"
+pip install -e ".[dev,server,integrations]"
 export AGENTTRACE_DB=./data/traces.db
 python examples/demo_agent.py
 uvicorn backend.app.main:app --port 8765 &
-cd frontend && npm install && npm run dev
+cd frontend && npm ci && npm run dev
 ```
 
 Open the UI at `http://127.0.0.1:4321`. Vite **proxies `/api` to FastAPI :8765** (real backend, not a mock). After `npm run build`, FastAPI also serves `frontend/dist` on `:8765`.
@@ -72,7 +80,7 @@ async with TraceSession("async-agent", recorder=rec) as session:
 - **Adapters:** `agenttrace.adapters` (LangGraph node wrapper, LangChain-style handler, OpenAI middleware, MCP wrapper)
 - **CLI:** `agenttrace list`, `agenttrace diagnose <id>`, `agenttrace replay <id>`, `agenttrace eval examples/eval/golden_v1.json --example`
 
-## Features (v0.2.0)
+## Features (v0.3.0)
 
 1. SDK — sessions, asyncio-safe parent/child spans, SQLite recorder, redaction, OTel mapping helper
 2. UI — trace list, tree, timeline, diagnostics, context panel, eval trigger, history replay
